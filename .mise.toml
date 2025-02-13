@@ -1,0 +1,30 @@
+[tools]
+python = "3.12"
+usage = "latest"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+PROJECT_NAME = "{{ config_root | basename }}"
+
+[tasks."uv:reqs"]
+description = "Install dependencies from requirements file"
+alias = "uvr"
+run = "uv pip install -r requirements.txt"
+
+[tasks."uv:freeze"]
+description = "Create requirements.txt from currently installed modules"
+alias = "uvf"
+run = "uv pip freeze > requirements.txt"
+
+[tasks."uv:install"]
+description = "Install pip packages"
+alias = "uvi"
+run = "uv pip install"
+
+[tasks.info]
+description = "Print project information"
+run = '''
+echo "Project: $PROJECT_NAME"
+echo "Virtual Environment: $VIRTUAL_ENV"
+'''
+
