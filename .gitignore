@@ -2,3 +2,4 @@
 tests/.env
 tamga.json
 .env
+__pycache__/**
