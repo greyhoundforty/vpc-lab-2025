@@ -3,11 +3,17 @@ from tamga import Tamga
 import time
 from time import sleep
 import random
-from utils import vpc_client, get_group_id_by_name
+import click
+from utils import vpc_client, get_group_id_by_name, create_vpc
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
 from rich.table import Table
+
+# add in dotenv
+# tailscale api key
+# tailscale tailnet id
+# ibmcloud api key
 
 logger = Tamga(logToJSON=True, logToConsole=False)
 
@@ -26,78 +32,53 @@ ibmcloud_api_key = os.environ.get("IBMCLOUD_API_KEY")
 if not ibmcloud_api_key:
     logger.error("IBMCLOUD_API_KEY environment variable not found")
 
-resource_group_name = os.environ.get("RESOURCE_GROUP")
-if not resource_group_name:
-    logger.error("RESOURCE_GROUP environment variable not found")
 
-
-def create_public_gateways(vpc_client, vpc_id, zone_name, resource_group_id, prefix):
-    vpc_identity_model = {}
-    vpc_identity_model["id"] = vpc_id
-
-    zone_identity_model = {}
-    zone_identity_model["name"] = zone_name
-
-    resource_group_identity_model = {}
-    resource_group_identity_model["id"] = resource_group_id
-
-    vpc = vpc_identity_model
-    zone = zone_identity_model
-    name = f"{prefix}-pgw-{zone}"
-    resource_group = resource_group_identity_model
-    response = vpc_client.create_public_gateway(
-        vpc,
-        zone,
-        name=name,
-        resource_group=resource_group,
-    ).get_result()
-
-    return response
-
-    # time.sleep(random.randint(2, 8))
-    # return service
-
-
-def create_subnets(region):
-    service = "thing"
-    time.sleep(random.randint(2, 8))
-    return service
-
-
-def create_security_groups(region):
-    service = "thing"
-    time.sleep(random.randint(2, 8))
-    return service
-
-
-def create_tailscale_token(region):
-    service = "thing"
-    time.sleep(random.randint(2, 8))
-    return service
-
-
-def create_tailscale_compute(region):
-    service = "thing"
-    time.sleep(random.randint(2, 8))
-    return service
-
-
-def main(region, prefix, resource_group_name, cos_instance):
+@click.command()
+@click.option(
+    "--resource-group",
+    prompt="Enter the IBM Cloud resource group name",
+    help="IBM Cloud resource group",
+)
+@click.option(
+    "--region",
+    prompt="Enter the IBM Cloud region to deploy the VPC",
+    help="IBM Cloud region",
+)
+@click.option(
+    "--prefix",
+    prompt="Enter a prefix for the VPC resources",
+    help="Prefix for the VPC resources",
+)
+@click.option(
+    "--ssh-key",
+    prompt="Name of an existing SSH key in the region.",
+    help="VPC SSH key name",
+)
+@click.option(
+    "--dns-zone",
+    prompt="Name of the Private DNS zone to create",
+    help="DNS Zone name",
+)
+def main(resource_group, region, prefix, ssh_key, dns_zone):
     job_progress = Progress(
         "{task.description}",
         SpinnerColumn(),
         BarColumn(),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
     )
-    job1 = job_progress.add_task(f"[green]Creating VPC in the {region} region", total=3)
+    job1 = job_progress.add_task(
+        f"[green]Starting VPC deployment in the {region} region", total=3
+    )
     job2 = job_progress.add_task(
         "[orange]Creating Public Gateways and Subnets", total=3
     )
     job3 = job_progress.add_task("[orange]Configuring VPC Security Groups", total=2)
-    job4 = job_progress.add_task("[orange]Creating Tailscale token", total=1)
-    job5 = job_progress.add_task("[orange]Creating Tailscale compute instance", total=1)
-    # job5 = job_progress.add_task("[blue]Creating Tailscale device access token")
-    # job6 = job_progress.add_task("[cyan]Creating Tailscale compute instance")
+    job4 = job_progress.add_task("[blue]Creating Tailscale token", total=1)
+    job5 = job_progress.add_task("[blue]Creating Tailscale compute instance", total=1)
+    job6 = job_progress.add_task("[yellow]Creating Private DNS Zone", total=2)
+    job7 = job_progress.add_task(
+        "[yellow]Creating Private DNS Custom Resolver", total=2
+    )
 
     total = sum(task.total for task in job_progress.tasks)
     overall_progress = Progress()
@@ -118,19 +99,9 @@ def main(region, prefix, resource_group_name, cos_instance):
         # Job 1 - create vpc client, retrieve resource group id, create vpc in the region
         vpc_client = vpc_client(ibmcloud_api_key, region)
         job_progress.update(job1, advance=1)
-        resource_group_identity_model = {}
-        resource_group_identity_model["id"] = get_group_id_by_name(resource_group_name)
-        resource_group_id = resource_group_identity_model
+
         job_progress.update(job1, advance=1)
-        basename = haikunator.haikunate(token_length=0, delimiter="")
-        vpc_name = f"{basename}-vpc"
-        address_prefix_management = "auto"
-        response = vpc_client.create_vpc(
-            classic_access=False,
-            address_prefix_management=address_prefix_management,
-            name=vpc_name,
-            resource_group=resource_group_id,
-        ).get_result()
+
         vpc_id = response["id"]
         job_progress.update(job1, advance=1)
 
@@ -144,7 +115,7 @@ def main(region, prefix, resource_group_name, cos_instance):
         for zone in regional_zones:
             create_public_gateways(vpc_client, vpc_id, zone, resource_group_id)
             job_progress.update(job2, advance=1)
-            create_subnets(region)
+            create_subnets(vpc_client, vpc_id, zone, resource_group_id)
             job_progress.update(job2, advance=1)
 
         completed = sum(task.completed for task in job_progress.tasks)
