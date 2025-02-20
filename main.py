@@ -79,7 +79,7 @@ def main(resource_group, region, prefix, tailscale_tag):
     job3 = job_progress.add_task("[green]Creating front and backend subnets", total=2)
     job4 = job_progress.add_task("[blue]Creating Tailscale Security Group", total=2)
     job5 = job_progress.add_task("[blue]Creating Tailscale device token", total=1)
-    job6 = job_progress.add_task("[blue]Creating Tailscale compute", total=1)
+    job6 = job_progress.add_task("[blue]Creating Tailscale compute", total=3)
     # job6 = job_progress.add_task("[yellow]Creating Private DNS Zone", total=2)
     # job7 = job_progress.add_task(
     #     "[yellow]Creating Private DNS Custom Resolver", total=2
@@ -119,23 +119,22 @@ def main(resource_group, region, prefix, tailscale_tag):
         all_frontend_subnets = []
         all_backend_subnets = []
 
-        for zone in regional_zones:
+        for i, zone in enumerate(regional_zones):
             pgw_response = create_public_gateways(
                 client, vpc_id, zone, resource_group_id, prefix
             )
             pg_id = pgw_response["id"]
-            job_progress.update(job2, advance=1)
-            frontend_subnet = create_subnets(
-                client, pg_id, resource_group_id, vpc_id, zone, f"{prefix}-frontend"
-            )
-            all_frontend_subnets.append(frontend_subnet["id"])
-            job_progress.update(job3, advance=1)
+            if i == 0:  # Only create frontend subnet in the first zone
+                frontend_subnet = create_subnets(
+                    client, pg_id, resource_group_id, vpc_id, zone, f"{prefix}-frontend"
+                )
+                all_frontend_subnets.append(frontend_subnet["id"])
+                job_progress.update(job3, advance=1)
             backend_subnet = create_subnets(
                 client, None, resource_group_id, vpc_id, zone, f"{prefix}-backend"
             )
             all_backend_subnets.append(backend_subnet["id"])
             job_progress.update(job3, advance=1)
-
         # job 4 create secrutiy group
         ts_group_resonse = create_tailscale_sg_group(
             client, vpc_id, resource_group_id, prefix
@@ -149,9 +148,6 @@ def main(resource_group, region, prefix, tailscale_tag):
         )
         job_progress.update(job5, advance=1)
         first_subnet_id = all_frontend_subnets[0]
-        logger.info(f"Device Token ID: {tailscale_device_token['id']}")
-        # logger.info(f"Device Token: {tailscale_device_token['key']}")
-        logger.info(f"subnet info: {first_subnet_id}")
 
         # first_zone_subnet_id = frontend_subnets["subnets"][0]["id"]
         new_vnic = create_vnic(
@@ -159,6 +155,24 @@ def main(resource_group, region, prefix, tailscale_tag):
         )
         job_progress.update(job6, advance=1)
         logger.info(f"VNIC ID: {new_vnic['id']}")
+        image_id = get_latest_ubuntu(client)
+        logger.info(f"Ubuntu Image ID: {image_id}")
+        job_progress.update(job6, advance=1)
+
+        my_key_id = "r038-441f040d-e836-4d5f-ad3f-8ea475652ce2"
+        new_instance = create_tailscale_compute(
+            client,
+            prefix,
+            sg_id,
+            resource_group_id,
+            vpc_id,
+            zone,
+            image_id,
+            my_key_id,
+            first_subnet_id,
+        )
+        job_progress.update(job6, advance=1)
+        logger.info(f"New Instance ID: {new_instance['id']}")
         completed = sum(task.completed for task in job_progress.tasks)
         overall_progress.update(overall_task, completed=completed)
 

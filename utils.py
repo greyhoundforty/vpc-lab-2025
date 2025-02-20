@@ -216,6 +216,25 @@ def create_vnic(vpc_client, subnet_id, resource_group_id, prefix, security_group
     return virtual_network_interface
 
 
+def get_latest_ubuntu(vpc_client):
+    all_images = vpc_client.list_images(
+        limit=100,
+        status=["available"],
+        visibility="public",
+        user_data_format=["cloud_init"],
+    ).get_result()["images"]
+
+    ubuntu_24_images = [
+        image
+        for image in all_images
+        if image.get("name", "").startswith("ibm-ubuntu-24")
+        and image.get("operating_system", {}).get("architecture") == "amd64"
+    ]
+
+    image_id = ubuntu_24_images[0]["id"]
+    return image_id
+
+
 # def create_security_groups(region):
 #     service = "thing"
 #     time.sleep(random.randint(2, 8))
@@ -228,7 +247,77 @@ def create_vnic(vpc_client, subnet_id, resource_group_id, prefix, security_group
 #     return service
 
 
-# def create_tailscale_compute(region):
-#     service = "thing"
-#     time.sleep(random.randint(2, 8))
-#     return service
+def create_tailscale_compute(
+    vpc_client,
+    prefix,
+    sg_id,
+    resource_group_id,
+    vpc_id,
+    zone,
+    image_id,
+    my_key_id,
+    first_subnet_id,
+):
+    encryption_key_identity_model = {}
+    encryption_key_identity_model["crn"] = None
+
+    volume_profile_identity_model = {}
+    volume_profile_identity_model["name"] = "general-purpose"
+
+    security_group_identity_model = {}
+    security_group_identity_model["id"] = sg_id
+
+    subnet_identity_model = {}
+    subnet_identity_model["id"] = first_subnet_id
+
+    image_identity_model = {}
+    image_identity_model["id"] = image_id
+
+    instance_profile_identity_model = {}
+    instance_profile_identity_model["name"] = "cx2-2x4"
+
+    key_identity_model = {}
+    key_identity_model["id"] = my_key_id
+
+    network_interface_prototype_model = {}
+    network_interface_prototype_model["name"] = f"{prefix}-vnic-interface"
+    network_interface_prototype_model["security_groups"] = [
+        security_group_identity_model
+    ]
+    network_interface_prototype_model["subnet"] = subnet_identity_model
+
+    resource_group_identity_model = {}
+    resource_group_identity_model["id"] = resource_group_id
+
+    vpc_identity_model = {}
+    vpc_identity_model["id"] = vpc_id
+
+    volume_attachment_prototype_instance_by_image = {}
+    volume_attachment_prototype_instance_by_image[
+        "delete_volume_on_instance_delete"
+    ] = True
+
+    zone_identity_model = {}
+    zone_identity_model["name"] = zone
+
+    instance_prototype_model = {}
+    instance_prototype_model["keys"] = [key_identity_model]
+    instance_prototype_model["name"] = f"{prefix}-tailscale-instance"
+    instance_prototype_model["network_interfaces"] = [network_interface_prototype_model]
+    instance_prototype_model["profile"] = instance_profile_identity_model
+    instance_prototype_model["resource_group"] = resource_group_identity_model
+    instance_prototype_model["user_data"] = "testString"
+    instance_prototype_model["vpc"] = vpc_identity_model
+    instance_prototype_model[
+        "boot_volume_attachment"
+    ] = volume_attachment_prototype_instance_by_image
+    instance_prototype_model["image"] = image_identity_model
+    instance_prototype_model[
+        "primary_network_interface"
+    ] = network_interface_prototype_model
+    instance_prototype_model["zone"] = zone_identity_model
+
+    instance_prototype = instance_prototype_model
+
+    response = vpc_client.create_instance(instance_prototype)
+    return response
