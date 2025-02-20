@@ -1,11 +1,14 @@
 import os
 import httpx
+import base64
 from datetime import datetime
 from ibm_vpc import VpcV1
 from ibm_cloud_sdk_core.authenticators import IAMAuthenticator
 from ibm_cloud_sdk_core.api_exception import ApiException
 from ibm_platform_services.resource_controller_v2 import *
 from ibm_platform_services import IamIdentityV1, ResourceManagerV2
+
+from jinja2 import Environment, FileSystemLoader
 
 ibmcloud_api_key = os.environ.get("IBMCLOUD_API_KEY")
 if not ibmcloud_api_key:
@@ -299,6 +302,18 @@ def create_tailscale_compute(
 
     zone_identity_model = {}
     zone_identity_model["name"] = zone
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Load and render the cloud-config template
+    env = Environment(loader=FileSystemLoader(script_dir))
+
+    template = env.get_template("cloud_config_template.yaml")
+    user_data_script = template.render(tailscale_api_token=tailscale_api_token)
+
+    # Base64 encode the rendered user_data script
+    user_data_encoded = base64.b64encode(user_data_script.encode("utf-8")).decode(
+        "utf-8"
+    )
 
     instance_prototype_model = {}
     instance_prototype_model["keys"] = [key_identity_model]
@@ -384,3 +399,11 @@ def create_new_instance(
     except ApiException as e:
         logging.error("API exception {}.".format(str(e)))
         quit(1)
+
+
+def get_ssh_key_id(client, ssh_key):
+    keys = client.list_keys().get_result()
+    for key in keys["keys"]:
+        if key["name"] == ssh_key:
+            return key["id"]
+    return None
