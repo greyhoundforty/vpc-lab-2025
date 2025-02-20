@@ -364,9 +364,8 @@ def create_new_instance(
     }
 
     key_identity_model = {"id": my_key_id}
-    # profile_name = self.base_config["node_config"]["instance_profile_name"]
+
     profile_name = "bx2-2x8"
-    #
 
     instance_prototype = {}
     instance_prototype["name"] = vsi_name
@@ -375,7 +374,6 @@ def create_new_instance(
     instance_prototype["resource_group"] = {"id": resource_group_id}
     instance_prototype["vpc"] = {"id": vpc_id}
     instance_prototype["image"] = {"id": image_id}
-
     instance_prototype["zone"] = {"name": zone}
     instance_prototype["boot_volume_attachment"] = boot_volume_attachment
     instance_prototype["primary_network_interface"] = primary_network_interface

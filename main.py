@@ -133,8 +133,12 @@ def main(resource_group, region, prefix, tailscale_tag):
             backend_subnet = create_subnets(
                 client, None, resource_group_id, vpc_id, zone, f"{prefix}-backend"
             )
+
             all_backend_subnets.append(backend_subnet["id"])
             job_progress.update(job3, advance=1)
+
+        first_subnet_zone = "{region}-1"
+
         # job 4 create secrutiy group
         ts_group_resonse = create_tailscale_sg_group(
             client, vpc_id, resource_group_id, prefix
@@ -147,12 +151,13 @@ def main(resource_group, region, prefix, tailscale_tag):
             tailscale_api_key, tailnet_id, tailscale_tag
         )
         job_progress.update(job5, advance=1)
-        first_subnet_id = all_frontend_subnets[0]
+        first_subnet_id = all_frontend_subnets[0]["id"]
+        first_subnet_zone = "{region}-1"
 
         # first_zone_subnet_id = frontend_subnets["subnets"][0]["id"]
-        new_vnic = create_vnic(
-            client, first_subnet_id, resource_group_id, prefix, sg_id
-        )
+        # new_vnic = create_vnic(
+        #     client, first_subnet_id, resource_group_id, prefix, sg_id
+        # )
         job_progress.update(job6, advance=1)
         logger.info(f"VNIC ID: {new_vnic['id']}")
         image_id = get_latest_ubuntu(client)
@@ -160,13 +165,14 @@ def main(resource_group, region, prefix, tailscale_tag):
         job_progress.update(job6, advance=1)
 
         my_key_id = "r038-441f040d-e836-4d5f-ad3f-8ea475652ce2"
+
         new_instance = create_new_instance(
             client,
             prefix,
             sg_id,
             resource_group_id,
             vpc_id,
-            zone,
+            first_subnet_zone,
             image_id,
             my_key_id,
             first_subnet_id,
