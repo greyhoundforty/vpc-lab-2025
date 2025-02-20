@@ -75,7 +75,7 @@ def main(resource_group, region, prefix, tailscale_tag):
     job1 = job_progress.add_task(
         f"[green]Starting VPC deployment in the {region} region", total=2
     )
-    job2 = job_progress.add_task("[green]Creating Public Gateways", total=2)
+    job2 = job_progress.add_task("[green]Creating Public Gateways", total=1)
     job3 = job_progress.add_task("[green]Creating front and backend subnets", total=2)
     job4 = job_progress.add_task("[blue]Creating Tailscale Security Group", total=2)
     job5 = job_progress.add_task("[blue]Creating Tailscale device token", total=1)
@@ -160,7 +160,7 @@ def main(resource_group, region, prefix, tailscale_tag):
         job_progress.update(job6, advance=1)
 
         my_key_id = "r038-441f040d-e836-4d5f-ad3f-8ea475652ce2"
-        new_instance = create_tailscale_compute(
+        new_instance = create_new_instance(
             client,
             prefix,
             sg_id,

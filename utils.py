@@ -319,5 +319,70 @@ def create_tailscale_compute(
 
     instance_prototype = instance_prototype_model
 
-    response = vpc_client.create_instance(instance_prototype)
-    return response
+    try:
+        response = vpc_client.create_instance(instance_prototype)
+        return response
+    except ApiException as e:
+        logging.error("API exception {}.".format(str(e)))
+        quit(1)
+    except Exception as e:
+        logging.error("Exception {}.".format(str(e)))
+        quit(1)
+    return None
+
+
+def create_new_instance(
+    vpc_client,
+    prefix,
+    sg_id,
+    resource_group_id,
+    vpc_id,
+    zone,
+    image_id,
+    my_key_id,
+    first_subnet_id,
+):
+    security_group_identity_model = {"id": sg_id}
+    subnet_identity_model = {"id": first_subnet_id}
+    primary_network_interface = {
+        "name": "eth0",
+        "subnet": subnet_identity_model,
+        "security_groups": [security_group_identity_model],
+    }
+    vsi_name = f"{prefix}-tailscale-instance"
+    storage_volume_name = f"{vsi_name}-boot"
+
+    boot_volume_profile = {
+        "capacity": 100,
+        "name": storage_volume_name,
+        "profile": {"name": "general-purpose"},
+    }
+
+    boot_volume_attachment = {
+        "delete_volume_on_instance_delete": True,
+        "volume": boot_volume_profile,
+    }
+
+    key_identity_model = {"id": my_key_id}
+    # profile_name = self.base_config["node_config"]["instance_profile_name"]
+    profile_name = "bx2-2x8"
+    #
+
+    instance_prototype = {}
+    instance_prototype["name"] = vsi_name
+    instance_prototype["keys"] = [key_identity_model]
+    instance_prototype["profile"] = {"name": profile_name}
+    instance_prototype["resource_group"] = {"id": resource_group_id}
+    instance_prototype["vpc"] = {"id": vpc_id}
+    instance_prototype["image"] = {"id": image_id}
+
+    instance_prototype["zone"] = {"name": zone}
+    instance_prototype["boot_volume_attachment"] = boot_volume_attachment
+    instance_prototype["primary_network_interface"] = primary_network_interface
+
+    try:
+        resp = vpc_client.create_instance(instance_prototype)
+        return resp
+    except ApiException as e:
+        logging.error("API exception {}.".format(str(e)))
+        quit(1)
