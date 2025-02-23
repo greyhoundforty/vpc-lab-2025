@@ -22,7 +22,7 @@ ibm-cloud-sdk-core==3.22.1
 ibm-code-engine-sdk==4.9.0
 ibm-platform-services==0.59.1
 ibm-vpc==0.26.3
-identify==2.6.7
+identify==2.6.8
 idna==3.10
 jinja2==3.1.5
 josepy==1.15.0
