@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/" # Location of your dependency files
+    schedule:
+      interval: "daily" # Options: daily, weekly, monthly
+    # Optionally, you can add labels to the pull requests created by Dependabot
+    labels:
+      - "dependencies"
