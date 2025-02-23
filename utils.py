@@ -1,11 +1,14 @@
 import os
 import httpx
+import base64
 from datetime import datetime
 from ibm_vpc import VpcV1
 from ibm_cloud_sdk_core.authenticators import IAMAuthenticator
 from ibm_cloud_sdk_core.api_exception import ApiException
 from ibm_platform_services.resource_controller_v2 import *
 from ibm_platform_services import IamIdentityV1, ResourceManagerV2
+
+from jinja2 import Environment, FileSystemLoader
 
 ibmcloud_api_key = os.environ.get("IBMCLOUD_API_KEY")
 if not ibmcloud_api_key:
@@ -216,6 +219,25 @@ def create_vnic(vpc_client, subnet_id, resource_group_id, prefix, security_group
     return virtual_network_interface
 
 
+def get_latest_ubuntu(vpc_client):
+    all_images = vpc_client.list_images(
+        limit=100,
+        status=["available"],
+        visibility="public",
+        user_data_format=["cloud_init"],
+    ).get_result()["images"]
+
+    ubuntu_24_images = [
+        image
+        for image in all_images
+        if image.get("name", "").startswith("ibm-ubuntu-24")
+        and image.get("operating_system", {}).get("architecture") == "amd64"
+    ]
+
+    image_id = ubuntu_24_images[0]["id"]
+    return image_id
+
+
 # def create_security_groups(region):
 #     service = "thing"
 #     time.sleep(random.randint(2, 8))
@@ -228,7 +250,160 @@ def create_vnic(vpc_client, subnet_id, resource_group_id, prefix, security_group
 #     return service
 
 
-# def create_tailscale_compute(region):
-#     service = "thing"
-#     time.sleep(random.randint(2, 8))
-#     return service
+def create_tailscale_compute(
+    vpc_client,
+    prefix,
+    sg_id,
+    resource_group_id,
+    vpc_id,
+    zone,
+    image_id,
+    my_key_id,
+    first_subnet_id,
+):
+    encryption_key_identity_model = {}
+    encryption_key_identity_model["crn"] = None
+
+    volume_profile_identity_model = {}
+    volume_profile_identity_model["name"] = "general-purpose"
+
+    security_group_identity_model = {}
+    security_group_identity_model["id"] = sg_id
+
+    subnet_identity_model = {}
+    subnet_identity_model["id"] = first_subnet_id
+
+    image_identity_model = {}
+    image_identity_model["id"] = image_id
+
+    instance_profile_identity_model = {}
+    instance_profile_identity_model["name"] = "cx2-2x4"
+
+    key_identity_model = {}
+    key_identity_model["id"] = my_key_id
+
+    network_interface_prototype_model = {}
+    network_interface_prototype_model["name"] = f"{prefix}-vnic-interface"
+    network_interface_prototype_model["security_groups"] = [
+        security_group_identity_model
+    ]
+    network_interface_prototype_model["subnet"] = subnet_identity_model
+
+    resource_group_identity_model = {}
+    resource_group_identity_model["id"] = resource_group_id
+
+    vpc_identity_model = {}
+    vpc_identity_model["id"] = vpc_id
+
+    volume_attachment_prototype_instance_by_image = {}
+    volume_attachment_prototype_instance_by_image[
+        "delete_volume_on_instance_delete"
+    ] = True
+
+    zone_identity_model = {}
+    zone_identity_model["name"] = zone
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Load and render the cloud-config template
+    env = Environment(loader=FileSystemLoader(script_dir))
+
+    template = env.get_template("cloud_config_template.yaml")
+    user_data_script = template.render(tailscale_api_token=tailscale_api_token)
+
+    # Base64 encode the rendered user_data script
+    user_data_encoded = base64.b64encode(user_data_script.encode("utf-8")).decode(
+        "utf-8"
+    )
+
+    instance_prototype_model = {}
+    instance_prototype_model["keys"] = [key_identity_model]
+    instance_prototype_model["name"] = f"{prefix}-tailscale-instance"
+    instance_prototype_model["network_interfaces"] = [network_interface_prototype_model]
+    instance_prototype_model["profile"] = instance_profile_identity_model
+    instance_prototype_model["resource_group"] = resource_group_identity_model
+    instance_prototype_model["user_data"] = "testString"
+    instance_prototype_model["vpc"] = vpc_identity_model
+    instance_prototype_model[
+        "boot_volume_attachment"
+    ] = volume_attachment_prototype_instance_by_image
+    instance_prototype_model["image"] = image_identity_model
+    instance_prototype_model[
+        "primary_network_interface"
+    ] = network_interface_prototype_model
+    instance_prototype_model["zone"] = zone_identity_model
+
+    instance_prototype = instance_prototype_model
+
+    try:
+        response = vpc_client.create_instance(instance_prototype)
+        return response
+    except ApiException as e:
+        logging.error("API exception {}.".format(str(e)))
+        quit(1)
+    except Exception as e:
+        logging.error("Exception {}.".format(str(e)))
+        quit(1)
+    return None
+
+
+def create_new_instance(
+    vpc_client,
+    prefix,
+    sg_id,
+    resource_group_id,
+    vpc_id,
+    zone,
+    image_id,
+    my_key_id,
+    first_subnet_id,
+):
+    security_group_identity_model = {"id": sg_id}
+    subnet_identity_model = {"id": first_subnet_id}
+    primary_network_interface = {
+        "name": "eth0",
+        "subnet": subnet_identity_model,
+        "security_groups": [security_group_identity_model],
+    }
+    vsi_name = f"{prefix}-tailscale-instance"
+    storage_volume_name = f"{vsi_name}-boot"
+
+    boot_volume_profile = {
+        "capacity": 100,
+        "name": storage_volume_name,
+        "profile": {"name": "general-purpose"},
+    }
+
+    boot_volume_attachment = {
+        "delete_volume_on_instance_delete": True,
+        "volume": boot_volume_profile,
+    }
+
+    key_identity_model = {"id": my_key_id}
+
+    profile_name = "bx2-2x8"
+
+    instance_prototype = {}
+    instance_prototype["name"] = vsi_name
+    instance_prototype["keys"] = [key_identity_model]
+    instance_prototype["profile"] = {"name": profile_name}
+    instance_prototype["resource_group"] = {"id": resource_group_id}
+    instance_prototype["vpc"] = {"id": vpc_id}
+    instance_prototype["image"] = {"id": image_id}
+    instance_prototype["zone"] = {"name": zone}
+    instance_prototype["boot_volume_attachment"] = boot_volume_attachment
+    instance_prototype["primary_network_interface"] = primary_network_interface
+
+    try:
+        resp = vpc_client.create_instance(instance_prototype)
+        return resp
+    except ApiException as e:
+        logging.error("API exception {}.".format(str(e)))
+        quit(1)
+
+
+def get_ssh_key_id(client, ssh_key):
+    keys = client.list_keys().get_result()
+    for key in keys["keys"]:
+        if key["name"] == ssh_key:
+            return key["id"]
+    return None

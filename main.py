@@ -54,18 +54,18 @@ if not ibmcloud_api_key:
     prompt="Tailscale tag to add to authentication token.",
     help="Tailscale tag",
 )
-# @click.option(
-#     "--ssh-key",
-#     prompt="Name of an existing SSH key in the region.",
-#     help="VPC SSH key name",
-# )
+@click.option(
+    "--ssh-key",
+    prompt="Name of an existing SSH key in the region.",
+    help="VPC SSH key name",
+)
 # @click.option(
 #     "--dns-zone",
 #     prompt="Name of the Private DNS zone to create",
 #     help="DNS Zone name",
 # )
 # ssh_key, dns_zone
-def main(resource_group, region, prefix, tailscale_tag):
+def main(resource_group, region, prefix, ssh_key, tailscale_tag):
     job_progress = Progress(
         "{task.description}",
         SpinnerColumn(),
@@ -75,11 +75,11 @@ def main(resource_group, region, prefix, tailscale_tag):
     job1 = job_progress.add_task(
         f"[green]Starting VPC deployment in the {region} region", total=2
     )
-    job2 = job_progress.add_task("[green]Creating Public Gateways", total=2)
+    job2 = job_progress.add_task("[green]Creating Public Gateways", total=1)
     job3 = job_progress.add_task("[green]Creating front and backend subnets", total=2)
     job4 = job_progress.add_task("[blue]Creating Tailscale Security Group", total=2)
     job5 = job_progress.add_task("[blue]Creating Tailscale device token", total=1)
-    job6 = job_progress.add_task("[blue]Creating Tailscale compute", total=1)
+    # job6 = job_progress.add_task("[blue]Creating Tailscale compute", total=3)
     # job6 = job_progress.add_task("[yellow]Creating Private DNS Zone", total=2)
     # job7 = job_progress.add_task(
     #     "[yellow]Creating Private DNS Custom Resolver", total=2
@@ -119,22 +119,25 @@ def main(resource_group, region, prefix, tailscale_tag):
         all_frontend_subnets = []
         all_backend_subnets = []
 
-        for zone in regional_zones:
+        for i, zone in enumerate(regional_zones):
             pgw_response = create_public_gateways(
                 client, vpc_id, zone, resource_group_id, prefix
             )
             pg_id = pgw_response["id"]
-            job_progress.update(job2, advance=1)
-            frontend_subnet = create_subnets(
-                client, pg_id, resource_group_id, vpc_id, zone, f"{prefix}-frontend"
-            )
-            all_frontend_subnets.append(frontend_subnet["id"])
-            job_progress.update(job3, advance=1)
+            if i == 0:  # Only create frontend subnet in the first zone
+                frontend_subnet = create_subnets(
+                    client, pg_id, resource_group_id, vpc_id, zone, f"{prefix}-frontend"
+                )
+                all_frontend_subnets.append(frontend_subnet["id"])
+                job_progress.update(job3, advance=1)
             backend_subnet = create_subnets(
                 client, None, resource_group_id, vpc_id, zone, f"{prefix}-backend"
             )
+
             all_backend_subnets.append(backend_subnet["id"])
             job_progress.update(job3, advance=1)
+
+        first_subnet_zone = f"{region}-1"
 
         # job 4 create secrutiy group
         ts_group_resonse = create_tailscale_sg_group(
@@ -147,18 +150,35 @@ def main(resource_group, region, prefix, tailscale_tag):
         tailscale_device_token = create_tailscale_key(
             tailscale_api_key, tailnet_id, tailscale_tag
         )
+        ssh_key_id = get_ssh_key_id(client, ssh_key)
+
         job_progress.update(job5, advance=1)
         first_subnet_id = all_frontend_subnets[0]
-        logger.info(f"Device Token ID: {tailscale_device_token['id']}")
-        # logger.info(f"Device Token: {tailscale_device_token['key']}")
-        logger.info(f"subnet info: {first_subnet_id}")
+        first_subnet_zone = f"{region}-1"
+        logger.info(f"subnet_id in {first_subnet_zone} is: {first_subnet_id}")
 
-        # first_zone_subnet_id = frontend_subnets["subnets"][0]["id"]
-        new_vnic = create_vnic(
-            client, first_subnet_id, resource_group_id, prefix, sg_id
+        # new_vnic = create_vnic(
+        #     client, first_subnet_id, resource_group_id, prefix, sg_id
+        # )
+        job_progress.update(job6, advance=1)
+        image_id = get_latest_ubuntu(client)
+        logger.info(f"Ubuntu Image ID: {image_id}")
+        job_progress.update(job6, advance=1)
+
+        new_instance = create_new_instance(
+            client,
+            prefix,
+            sg_id,
+            resource_group_id,
+            vpc_id,
+            first_subnet_zone,
+            image_id,
+            ssh_key_id,
+            first_subnet_id,
         )
         job_progress.update(job6, advance=1)
-        logger.info(f"VNIC ID: {new_vnic['id']}")
+        instance_id = new_instance.get_result()["id"]
+        logger.info(f"New Instance ID: {instance_id}")
         completed = sum(task.completed for task in job_progress.tasks)
         overall_progress.update(overall_task, completed=completed)
 
