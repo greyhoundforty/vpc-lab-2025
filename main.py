@@ -10,11 +10,6 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
 from rich.table import Table
 
-# add in dotenv
-# tailscale api key
-# tailscale tailnet id
-# ibmcloud api key
-
 logger = Tamga(logToJSON=True, logToConsole=False)
 
 
@@ -79,11 +74,8 @@ def main(resource_group, region, prefix, ssh_key, tailscale_tag):
     job3 = job_progress.add_task("[green]Creating front and backend subnets", total=2)
     job4 = job_progress.add_task("[blue]Creating Tailscale Security Group", total=2)
     job5 = job_progress.add_task("[blue]Creating Tailscale device token", total=1)
-    # job6 = job_progress.add_task("[blue]Creating Tailscale compute", total=3)
-    # job6 = job_progress.add_task("[yellow]Creating Private DNS Zone", total=2)
-    # job7 = job_progress.add_task(
-    #     "[yellow]Creating Private DNS Custom Resolver", total=2
-    # )
+    job6 = job_progress.add_task("[blue]Creating Tailscale VPC compute instance", total=3)
+
 
     total = sum(task.total for task in job_progress.tasks)
     overall_progress = Progress()
@@ -129,6 +121,7 @@ def main(resource_group, region, prefix, ssh_key, tailscale_tag):
                     client, pg_id, resource_group_id, vpc_id, zone, f"{prefix}-frontend"
                 )
                 all_frontend_subnets.append(frontend_subnet["id"])
+                all_frontend_subnets.append(frontend_subnet["ipv4_cidr_block"])
                 job_progress.update(job3, advance=1)
             backend_subnet = create_subnets(
                 client, None, resource_group_id, vpc_id, zone, f"{prefix}-backend"
@@ -147,19 +140,19 @@ def main(resource_group, region, prefix, ssh_key, tailscale_tag):
         sg_id = ts_group_resonse["id"]
         update_rules = create_rules(client, sg_id)
         job_progress.update(job4, advance=1)
-        tailscale_device_token = create_tailscale_key(
+        generate_device_token = create_tailscale_key(
             tailscale_api_key, tailnet_id, tailscale_tag
         )
+        tailscale_device_token = generate_device_token["key"]
         ssh_key_id = get_ssh_key_id(client, ssh_key)
 
         job_progress.update(job5, advance=1)
         first_subnet_id = all_frontend_subnets[0]
+        first_subnet_cidr = all_frontend_subnets[1]
         first_subnet_zone = f"{region}-1"
         logger.info(f"subnet_id in {first_subnet_zone} is: {first_subnet_id}")
+        logger.info(f"subnet_cidr in is: {first_subnet_cidr}")
 
-        # new_vnic = create_vnic(
-        #     client, first_subnet_id, resource_group_id, prefix, sg_id
-        # )
         job_progress.update(job6, advance=1)
         image_id = get_latest_ubuntu(client)
         logger.info(f"Ubuntu Image ID: {image_id}")
@@ -175,6 +168,8 @@ def main(resource_group, region, prefix, ssh_key, tailscale_tag):
             image_id,
             ssh_key_id,
             first_subnet_id,
+            tailscale_device_token,
+            first_subnet_cidr
         )
         job_progress.update(job6, advance=1)
         instance_id = new_instance.get_result()["id"]
