@@ -292,28 +292,12 @@ def create_rules(vpc_client, sg_id):
     """
     security_group_rule_protocol_tcp_tailscale_model = {}
     security_group_rule_protocol_tcp_tailscale_model["cidr_block"] = "100.64.0.0/10"
-    security_group_rule_protocol_tcp_remote_model = {}
-    security_group_rule_protocol_tcp_remote_model["address"] = "98.96.123.127"
     security_group_rule_prototype_model = {}
     security_group_rule_prototype_model["direction"] = "inbound"
     security_group_rule_prototype_model["ip_version"] = "ipv4"
     security_group_rule_prototype_model["protocol"] = "icmp"
     security_group_rule_prototype_model["code"] = 0
     security_group_rule_prototype_model["type"] = 8
-    security_group_rule_prototype = security_group_rule_prototype_model
-    response = vpc_client.create_security_group_rule(
-        sg_id, security_group_rule_prototype
-    )
-
-    security_group_rule_prototype_model = {}
-    security_group_rule_prototype_model["direction"] = "inbound"
-    security_group_rule_prototype_model["ip_version"] = "ipv4"
-    security_group_rule_prototype_model["protocol"] = "tcp"
-    security_group_rule_prototype_model["port_min"] = 22
-    security_group_rule_prototype_model["port_max"] = 22
-    security_group_rule_prototype_model[
-        "remote"
-    ] = security_group_rule_protocol_tcp_remote_model
     security_group_rule_prototype = security_group_rule_prototype_model
     response = vpc_client.create_security_group_rule(
         sg_id, security_group_rule_prototype
@@ -473,130 +457,6 @@ def get_latest_ubuntu(vpc_client):
     return image_id
 
 
-def create_tailscale_compute(
-    vpc_client,
-    prefix,
-    sg_id,
-    resource_group_id,
-    vpc_id,
-    zone,
-    image_id,
-    my_key_id,
-    first_subnet_id,
-    tailscale_device_token,
-):
-    """
-    Creates a compute instance configured with Tailscale.
-
-    This function creates a new compute instance in the specified VPC, subnet, and zone,
-    and configures it to use Tailscale for secure remote access. It uses a cloud-config
-    template to install and configure Tailscale on the instance.
-
-    Args:
-        vpc_client (VpcV1): An instance of the VpcV1 service.
-        prefix (str): A prefix to use for the instance name.
-        sg_id (str): The ID of the security group to associate with the instance.
-        resource_group_id (str): The ID of the resource group to create the instance in.
-        vpc_id (str): The ID of the VPC to create the instance in.
-        zone (str): The name of the zone to create the instance in (e.g., "us-south-1").
-        image_id (str): The ID of the image to use for the instance.
-        my_key_id (str): The ID of the SSH key to use for the instance.
-        first_subnet_id (str): The ID of the subnet to create the instance in.
-        tailscale_device_token (str): The Tailscale device token to use for authentication.
-
-    Returns:
-        dict: The response from the VPC service, containing details about the created instance.
-
-    Raises:
-        ApiException: If there is an error while calling the IBM Cloud API.
-        ValueError: If the `IBMCLOUD_API_KEY` environment variable is not set.
-        Exception: If there is an error during cloud-config template rendering or encoding.
-    """
-    encryption_key_identity_model = {}
-    encryption_key_identity_model["crn"] = None
-
-    volume_profile_identity_model = {}
-    volume_profile_identity_model["name"] = "general-purpose"
-
-    security_group_identity_model = {}
-    security_group_identity_model["id"] = sg_id
-
-    subnet_identity_model = {}
-    subnet_identity_model["id"] = first_subnet_id
-
-    image_identity_model = {}
-    image_identity_model["id"] = image_id
-
-    instance_profile_identity_model = {}
-    instance_profile_identity_model["name"] = "cx2-2x4"
-
-    key_identity_model = {}
-    key_identity_model["id"] = my_key_id
-
-    network_interface_prototype_model = {}
-    network_interface_prototype_model["name"] = f"{prefix}-vnic-interface"
-    network_interface_prototype_model["security_groups"] = [
-        security_group_identity_model
-    ]
-    network_interface_prototype_model["subnet"] = subnet_identity_model
-
-    resource_group_identity_model = {}
-    resource_group_identity_model["id"] = resource_group_id
-
-    vpc_identity_model = {}
-    vpc_identity_model["id"] = vpc_id
-
-    volume_attachment_prototype_instance_by_image = {}
-    volume_attachment_prototype_instance_by_image[
-        "delete_volume_on_instance_delete"
-    ] = True
-
-    zone_identity_model = {}
-    zone_identity_model["name"] = zone
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # Load and render the cloud-config template
-    env = Environment(loader=FileSystemLoader(script_dir))
-
-    template = env.get_template("cloud_config_template.yaml")
-    user_data_script = template.render(tailscale_api_token=tailscale_device_token)
-
-    # Base64 encode the rendered user_data script
-    user_data_encoded = base64.b64encode(user_data_script.encode("utf-8")).decode(
-        "utf-8"
-    )
-
-    instance_prototype_model = {}
-    instance_prototype_model["keys"] = [key_identity_model]
-    instance_prototype_model["name"] = f"{prefix}-tailscale-instance"
-    instance_prototype_model["network_interfaces"] = [network_interface_prototype_model]
-    instance_prototype_model["profile"] = instance_profile_identity_model
-    instance_prototype_model["resource_group"] = resource_group_identity_model
-    instance_prototype_model["user_data"] = user_data_encoded
-    instance_prototype_model["vpc"] = vpc_identity_model
-    instance_prototype_model[
-        "boot_volume_attachment"
-    ] = volume_attachment_prototype_instance_by_image
-    instance_prototype_model["image"] = image_identity_model
-    instance_prototype_model[
-        "primary_network_interface"
-    ] = network_interface_prototype_model
-    instance_prototype_model["zone"] = zone_identity_model
-
-    instance_prototype = instance_prototype_model
-
-    try:
-        response = vpc_client.create_instance(instance_prototype)
-        return response
-    except ApiException as e:
-        logging.error("API exception {}.".format(str(e)))
-        quit(1)
-    except Exception as e:
-        logging.error("Exception {}.".format(str(e)))
-        quit(1)
-    return None
-
-
 def create_new_instance(
     vpc_client,
     prefix,
@@ -608,7 +468,7 @@ def create_new_instance(
     my_key_id,
     first_subnet_id,
     tailscale_device_token,
-    first_subnet_cidr
+    first_subnet_cidr,
 ):
     """
     Creates a new compute instance.
@@ -654,7 +514,6 @@ def create_new_instance(
         "volume": boot_volume_profile,
     }
 
-
     key_identity_model = {"id": my_key_id}
     profile_name = "bx2-2x8"
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -664,12 +523,7 @@ def create_new_instance(
 
     template = env.get_template("cloud_config_template.yaml")
     user_data_script = template.render(
-        tailscale_api_token=tailscale_device_token,
-        first_subnet_cidr=first_subnet_cidr)
-
-    # Base64 encode the rendered user_data script
-    user_data_encoded = base64.b64encode(user_data_script.encode("utf-8")).decode(
-        "utf-8"
+        tailscale_api_token=tailscale_device_token, first_subnet_cidr=first_subnet_cidr
     )
 
     instance_prototype = {}
