@@ -521,7 +521,7 @@ def create_new_instance(
     # Load and render the cloud-config template
     env = Environment(loader=FileSystemLoader(script_dir))
 
-    template = env.get_template("cloud_config_template.yaml")
+    template = env.get_template("cloud_config.sh")
     user_data_script = template.render(
         tailscale_api_token=tailscale_device_token, first_subnet_cidr=first_subnet_cidr
     )
